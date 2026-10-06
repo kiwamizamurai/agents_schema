@@ -25,8 +25,9 @@ on:
       workload-identity-provider:
         description: >
           Workload Identity Federation provider resource name for keyless BigQuery auth
-          (WAREHOUSE_CREDENTIALS.auth_method: adc). Requires service-account too. Leave
-          unset to authenticate with WAREHOUSE_CREDENTIALS alone.
+          (WAREHOUSE_CREDENTIALS.auth_method: adc). Set service-account too to
+          impersonate a service account; omit it for direct Workload Identity Federation.
+          Leave unset to authenticate with WAREHOUSE_CREDENTIALS alone.
         type: string
         required: false
         default: ''
