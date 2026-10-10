@@ -65,7 +65,7 @@ default_audience.pop("oidc_audience", None)
 expect_success("default audience (snowflakecomputing.com)", default_audience)
 
 wrong_audience = {**BASE, "oidc_audience": "https://wrong.example"}
-expect_config_error("wrong audience", wrong_audience, ["394729", "OIDC_AUDIENCE_LIST"])
+expect_config_error("wrong audience", wrong_audience, ["394728", "oidc_audience"])
 
 with_password = {**BASE, "password": "x"}
 try:

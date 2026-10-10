@@ -1,9 +1,0 @@
-name: Perm caller restricted
-on:
-  push:
-    branches: [wif-check]
-permissions:
-  contents: read
-jobs:
-  call:
-    uses: ./.github/workflows/perm-callee.yml
