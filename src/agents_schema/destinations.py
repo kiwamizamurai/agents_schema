@@ -271,6 +271,11 @@ def _github_oidc_token(audience: str | None) -> str:
 
 
 _WORKLOAD_IDENTITY_HINTS = {
+    394728: (
+        "The OIDC token's audience is not allowed for this user. Set oidc_audience in "
+        "WAREHOUSE_CREDENTIALS to a value in the user's OIDC_AUDIENCE_LIST (the default is "
+        "snowflakecomputing.com), or add it with ALTER USER <user> SET WORKLOAD_IDENTITY."
+    ),
     394729: (
         "Snowflake did not recognize the OIDC token. Compare the issuer, subject and audience "
         "with SHOW USER WORKLOAD IDENTITY AUTHENTICATION METHODS FOR USER <user>; SUBJECT must "

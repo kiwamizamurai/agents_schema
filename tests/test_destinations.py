@@ -426,3 +426,14 @@ class SnowflakeWorkloadIdentityTests(unittest.TestCase):
         with patch("snowflake.connector.connect", side_effect=error):
             with self.assertRaises(sf_errors.DatabaseError):
                 SnowflakeDestination(connect_kwargs={"account": "a", "password": "p"})
+
+    def test_destination_explains_disallowed_audience(self):
+        import snowflake.connector.errors as sf_errors
+
+        error = sf_errors.DatabaseError(msg="JWT contains an invalid audience ('aud') claim", errno=394728)
+        with patch("snowflake.connector.connect", side_effect=error):
+            with self.assertRaises(ConfigError) as ctx:
+                SnowflakeDestination(connect_kwargs={"authenticator": "WORKLOAD_IDENTITY", "token": "t"})
+
+        self.assertIn("invalid audience", str(ctx.exception))
+        self.assertIn("oidc_audience", str(ctx.exception))
