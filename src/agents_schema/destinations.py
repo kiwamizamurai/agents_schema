@@ -168,10 +168,9 @@ def _snowflake_connect_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
 
 def _snowflake_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[str, Any]:
     auth_method = destination.get("auth_method")
-    if auth_method is not None and auth_method not in ("workload_identity", "password", "key_pair"):
+    if auth_method is not None and auth_method != "workload_identity":
         raise ConfigError(
-            "WAREHOUSE_CREDENTIALS.auth_method must be 'workload_identity', 'password', "
-            f"or 'key_pair', got {auth_method!r}"
+            f"WAREHOUSE_CREDENTIALS.auth_method must be 'workload_identity' when set, got {auth_method!r}"
         )
     use_workload_identity = auth_method == "workload_identity"
 

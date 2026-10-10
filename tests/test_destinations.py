@@ -288,7 +288,7 @@ class SnowflakeWorkloadIdentityTests(unittest.TestCase):
             _snowflake_connect_kwargs_from_secret({**self.BASE, "password": "pw"})
 
     def test_unknown_auth_method_is_rejected(self):
-        with self.assertRaisesRegex(ConfigError, "auth_method must be"):
+        with self.assertRaisesRegex(ConfigError, "auth_method must be .workload_identity."):
             _snowflake_connect_kwargs_from_secret({**self.BASE, "auth_method": "magic"})
 
     def test_github_oidc_token_requires_actions_environment(self):
@@ -324,10 +324,9 @@ class SnowflakeWorkloadIdentityTests(unittest.TestCase):
             "ACTIONS_ID_TOKEN_REQUEST_URL": "https://actions.example/token?api-version=2",
             "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "req",
         }
-        with patch.dict("os.environ", env, clear=True), patch("time.sleep") as sleep, patch(
+        with patch.dict("os.environ", env, clear=True), patch("time.sleep"), patch(
             "urllib.request.urlopen", return_value=urlopen_result, side_effect=side_effect
         ) as urlopen:
-            self.sleep = sleep
             return _github_oidc_token(audience), urlopen
 
     def test_github_oidc_token_defaults_to_snowflake_audience(self):
