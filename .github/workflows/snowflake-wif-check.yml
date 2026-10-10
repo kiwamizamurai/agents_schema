@@ -4,27 +4,43 @@ on:
   push:
     branches: [wif-check]
 
-permissions:
-  contents: read
-  id-token: write
-
 jobs:
-  check:
+  main:
     runs-on: ubuntu-latest
+    permissions: {contents: read, id-token: write}
+    env:
+      WAREHOUSE_CREDENTIALS: ${{ secrets.WAREHOUSE_CREDENTIALS }}
+      WIF_JOB: main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+        with: {python-version: '3.12'}
       - run: pip install .
-      - name: Connect to Snowflake with the GitHub OIDC token
-        env:
-          WAREHOUSE_CREDENTIALS: ${{ secrets.WAREHOUSE_CREDENTIALS }}
-        run: |
-          python - <<'PY'
-          import snowflake.connector
-          from agents_schema.destinations import _snowflake_connect_kwargs_from_secret, warehouse_credentials_from_env
-          conn = snowflake.connector.connect(**_snowflake_connect_kwargs_from_secret(warehouse_credentials_from_env()))
-          print(conn.cursor().execute("select current_user(), current_role(), current_account()").fetchone())
-          conn.close()
-          PY
+      - run: python .github/wif-check/run.py
+
+  no-permission:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    env:
+      WAREHOUSE_CREDENTIALS: ${{ secrets.WAREHOUSE_CREDENTIALS }}
+      WIF_JOB: no-permission
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install .
+      - run: python .github/wif-check/run.py
+
+  bad-subject:
+    runs-on: ubuntu-latest
+    environment: wif-bad-subject
+    permissions: {contents: read, id-token: write}
+    env:
+      WAREHOUSE_CREDENTIALS: ${{ secrets.WAREHOUSE_CREDENTIALS }}
+      WIF_JOB: bad-subject
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install .
+      - run: python .github/wif-check/run.py

@@ -59,13 +59,16 @@ user: AGENTS_SCHEMA_BOT
 warehouse: COMPUTE_WH
 database: ANALYTICS
 role: TRANSFORMER
-oidc_audience: https://abc123.snowflakecomputing.com   # must match OIDC_AUDIENCE_LIST
+oidc_audience: https://abc123.snowflakecomputing.com   # must match OIDC_AUDIENCE_LIST; defaults to snowflakecomputing.com
 ```
 
 The calling workflow needs `permissions: id-token: write`. Remove `password`
 and the private key fields; they are rejected when `auth_method` is
 `workload_identity`. `SUBJECT` must match the token's `sub` claim exactly, so
-it is specific to a branch, tag, or environment.
+it is specific to a branch, tag, or environment. Some accounts and repositories
+issue a `sub` that includes numeric IDs, for example
+`repo:owner@123/repo@456:ref:refs/heads/main`. If login fails with error 394729,
+the message shows the `sub` Snowflake received; use that value as `SUBJECT`.
 
 </details>
 
