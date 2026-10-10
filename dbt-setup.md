@@ -59,7 +59,7 @@ user: AGENTS_SCHEMA_BOT
 warehouse: COMPUTE_WH
 database: ANALYTICS
 role: TRANSFORMER
-oidc_audience: https://abc123.snowflakecomputing.com   # must match OIDC_AUDIENCE_LIST
+oidc_audience: https://abc123.snowflakecomputing.com   # must match OIDC_AUDIENCE_LIST; defaults to snowflakecomputing.com
 ```
 
 The calling workflow needs `permissions: id-token: write`. Remove `password`

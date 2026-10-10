@@ -317,3 +317,33 @@ class SnowflakeWorkloadIdentityTests(unittest.TestCase):
         )
         self.assertEqual(kwargs["password"], "pw")
         self.assertNotIn("authenticator", kwargs)
+
+    def _fetch_token(self, urlopen_result=None, side_effect=None, audience=None):
+        env = {
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://actions.example/token?api-version=2",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "req",
+        }
+        with patch.dict("os.environ", env, clear=True), patch(
+            "urllib.request.urlopen", return_value=urlopen_result, side_effect=side_effect
+        ) as urlopen:
+            return _github_oidc_token(audience), urlopen
+
+    def test_github_oidc_token_defaults_to_snowflake_audience(self):
+        token, urlopen = self._fetch_token(io.BytesIO(b'{"value": "jwt"}'))
+
+        self.assertEqual(token, "jwt")
+        self.assertIn("audience=snowflakecomputing.com", urlopen.call_args.args[0].full_url)
+
+    def test_github_oidc_token_request_failure_is_a_config_error(self):
+        with self.assertRaisesRegex(ConfigError, "Failed to fetch GitHub Actions OIDC token"):
+            self._fetch_token(side_effect=OSError("boom"))
+
+    def test_github_oidc_token_response_without_value_is_a_config_error(self):
+        with self.assertRaisesRegex(ConfigError, "did not include a token"):
+            self._fetch_token(io.BytesIO(b"{}"))
+
+    def test_workload_identity_requires_connection_fields(self):
+        with self.assertRaisesRegex(ConfigError, "missing keys: warehouse"):
+            _snowflake_connect_kwargs_from_secret(
+                {k: v for k, v in self.BASE.items() if k != "warehouse"}
+            )

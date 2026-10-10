@@ -227,8 +227,9 @@ def _github_oidc_token(audience: str | None) -> str:
             "WAREHOUSE_CREDENTIALS.auth_method is 'workload_identity' but no GitHub Actions "
             "OIDC token is available; run inside GitHub Actions with 'permissions: id-token: write'"
         )
-    if audience:
-        request_url += ("&" if "?" in request_url else "?") + urllib.parse.urlencode({"audience": audience})
+    # GitHub defaults the audience to the repository owner URL; Snowflake expects its own.
+    query = urllib.parse.urlencode({"audience": audience or "snowflakecomputing.com"})
+    request_url += ("&" if "?" in request_url else "?") + query
     request = urllib.request.Request(request_url, headers={"Authorization": f"Bearer {request_token}"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
