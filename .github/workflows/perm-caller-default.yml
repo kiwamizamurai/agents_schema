@@ -1,0 +1,7 @@
+name: Perm caller default
+on:
+  push:
+    branches: [wif-check]
+jobs:
+  call:
+    uses: ./.github/workflows/perm-callee.yml

@@ -1,0 +1,10 @@
+name: Perm caller granted
+on:
+  push:
+    branches: [wif-check]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  call:
+    uses: ./.github/workflows/perm-callee.yml
