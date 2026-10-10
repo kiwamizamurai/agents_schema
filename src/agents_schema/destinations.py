@@ -238,8 +238,7 @@ def _github_oidc_token(audience: str | None) -> str:
     if not request_url or not request_token:
         raise ConfigError(
             "WAREHOUSE_CREDENTIALS.auth_method is 'workload_identity' but no GitHub Actions "
-            "OIDC token is available; run inside GitHub Actions with 'permissions: id-token: write' "
-            "(reusable workflows inherit it from the calling workflow)"
+            "OIDC token is available; run inside GitHub Actions with 'permissions: id-token: write'"
         )
     if not request_url.startswith("https://"):
         raise ConfigError("ACTIONS_ID_TOKEN_REQUEST_URL must be an https URL")
