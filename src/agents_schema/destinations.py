@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -45,7 +47,13 @@ class SnowflakeDestination(SnowflakeAgentsSchemaWriter):
             if config is None:
                 raise ConfigError("SnowflakeDestination requires config or connect_kwargs")
             connect_kwargs = _snowflake_connect_kwargs(config)
-        super().__init__(snowflake.connector.connect(**connect_kwargs))
+        try:
+            connection = snowflake.connector.connect(**connect_kwargs)
+        except snowflake.connector.errors.Error as e:
+            if connect_kwargs.get("authenticator") != "WORKLOAD_IDENTITY":
+                raise
+            raise _workload_identity_error(e, connect_kwargs.get("token")) from e
+        super().__init__(connection)
 
 
 class DatabricksDestination(DatabricksAgentsSchemaWriter):
@@ -200,7 +208,10 @@ def _snowflake_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[s
     if use_workload_identity:
         kwargs["authenticator"] = "WORKLOAD_IDENTITY"
         kwargs["workload_identity_provider"] = "OIDC"
-        kwargs["token"] = _github_oidc_token(destination.get("oidc_audience"))
+        audience = destination.get("oidc_audience")
+        if audience is not None and (not isinstance(audience, str) or not audience.strip()):
+            raise ConfigError("WAREHOUSE_CREDENTIALS.oidc_audience must be a non-empty string")
+        kwargs["token"] = _github_oidc_token(audience)
         return kwargs
     passphrase = destination.get("private_key_passphrase")
     if has_private_key_pem:
@@ -218,6 +229,9 @@ def _snowflake_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[s
     return kwargs
 
 
+_OIDC_REQUEST_ATTEMPTS = 3
+
+
 def _github_oidc_token(audience: str | None) -> str:
     """Request a GitHub Actions OIDC ID token for Snowflake workload identity federation."""
     request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
@@ -225,20 +239,53 @@ def _github_oidc_token(audience: str | None) -> str:
     if not request_url or not request_token:
         raise ConfigError(
             "WAREHOUSE_CREDENTIALS.auth_method is 'workload_identity' but no GitHub Actions "
-            "OIDC token is available; run inside GitHub Actions with 'permissions: id-token: write'"
+            "OIDC token is available; run inside GitHub Actions with 'permissions: id-token: write' "
+            "(reusable workflows inherit it from the calling workflow)"
         )
+    if not request_url.startswith("https://"):
+        raise ConfigError("ACTIONS_ID_TOKEN_REQUEST_URL must be an https URL")
     # GitHub defaults the audience to the repository owner URL; Snowflake expects its own.
     query = urllib.parse.urlencode({"audience": audience or "snowflakecomputing.com"})
     request_url += ("&" if "?" in request_url else "?") + query
     request = urllib.request.Request(request_url, headers={"Authorization": f"Bearer {request_token}"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            token = json.load(response).get("value")
-    except (OSError, ValueError) as e:
-        raise ConfigError(f"Failed to fetch GitHub Actions OIDC token: {e}") from e
-    if not token:
-        raise ConfigError("GitHub Actions OIDC token response did not include a token")
-    return token
+
+    failure = "unknown error"
+    for attempt in range(_OIDC_REQUEST_ATTEMPTS):
+        if attempt:
+            time.sleep(2**attempt)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = json.load(response)
+        except urllib.error.HTTPError as e:
+            failure = f"HTTP {e.code}"
+            if e.code < 500 and e.code != 429:
+                break  # not transient: retrying cannot help
+        except (OSError, ValueError) as e:
+            failure = str(e)
+        else:
+            token = body.get("value") if isinstance(body, dict) else None
+            if not isinstance(token, str) or not token:
+                raise ConfigError("GitHub Actions OIDC token response did not include a token")
+            return token
+    raise ConfigError(f"Failed to fetch GitHub Actions OIDC token: {failure}")
+
+
+_WORKLOAD_IDENTITY_HINTS = {
+    394729: (
+        "Snowflake did not recognize the OIDC token. Compare the issuer, subject and audience "
+        "with SHOW USER WORKLOAD IDENTITY AUTHENTICATION METHODS FOR USER <user>; SUBJECT must "
+        "equal the token's sub claim and oidc_audience must be in OIDC_AUDIENCE_LIST."
+    ),
+}
+
+
+def _workload_identity_error(error: Exception, token: str | None) -> ConfigError:
+    message = str(getattr(error, "msg", None) or error)
+    if token:
+        message = message.replace(token, "***")
+    hint = _WORKLOAD_IDENTITY_HINTS.get(getattr(error, "errno", None))
+    detail = f"Snowflake workload identity login failed: {message}"
+    return ConfigError(f"{detail}\n{hint}" if hint else detail)
 
 
 def _databricks_connect_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
