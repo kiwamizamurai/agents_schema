@@ -1,0 +1,30 @@
+name: Snowflake WIF check
+
+on:
+  push:
+    branches: [wif-check]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install .
+      - name: Connect to Snowflake with the GitHub OIDC token
+        env:
+          WAREHOUSE_CREDENTIALS: ${{ secrets.WAREHOUSE_CREDENTIALS }}
+        run: |
+          python - <<'PY'
+          import snowflake.connector
+          from agents_schema.destinations import _snowflake_connect_kwargs_from_secret, warehouse_credentials_from_env
+          conn = snowflake.connector.connect(**_snowflake_connect_kwargs_from_secret(warehouse_credentials_from_env()))
+          print(conn.cursor().execute("select current_user(), current_role(), current_account()").fetchone())
+          conn.close()
+          PY
