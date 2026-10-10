@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -157,12 +159,32 @@ def _snowflake_connect_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _snowflake_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[str, Any]:
+    auth_method = destination.get("auth_method")
+    if auth_method is not None and auth_method not in ("workload_identity", "password", "key_pair"):
+        raise ConfigError(
+            "WAREHOUSE_CREDENTIALS.auth_method must be 'workload_identity', 'password', "
+            f"or 'key_pair', got {auth_method!r}"
+        )
+    use_workload_identity = auth_method == "workload_identity"
+
     required = ["account", "user", "warehouse", "database"]
     missing = [name for name in required if not destination.get(name)]
     has_password = bool(destination.get("password"))
     has_private_key_pem = bool(destination.get("private_key_pem"))
     has_private_key_path = bool(destination.get("private_key_path"))
-    if not has_password and not has_private_key_pem and not has_private_key_path:
+    if use_workload_identity:
+        conflicting = [
+            name
+            for name in ("password", "private_key_pem", "private_key_path", "private_key_passphrase")
+            if destination.get(name)
+        ]
+        if conflicting:
+            raise ConfigError(
+                "WAREHOUSE_CREDENTIALS.auth_method is 'workload_identity'; remove "
+                + ", ".join(sorted(conflicting))
+                + " (static credentials are ignored and would be misleading to keep)"
+            )
+    elif not has_password and not has_private_key_pem and not has_private_key_path:
         missing.append("password, private_key_pem, or private_key_path")
     if missing:
         raise ConfigError("WAREHOUSE_CREDENTIALS missing keys: " + ", ".join(missing))
@@ -175,6 +197,11 @@ def _snowflake_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[s
     }
     if role := destination.get("role"):
         kwargs["role"] = role
+    if use_workload_identity:
+        kwargs["authenticator"] = "WORKLOAD_IDENTITY"
+        kwargs["workload_identity_provider"] = "OIDC"
+        kwargs["token"] = _github_oidc_token(destination.get("oidc_audience"))
+        return kwargs
     passphrase = destination.get("private_key_passphrase")
     if has_private_key_pem:
         kwargs["private_key"] = load_private_key(
@@ -189,6 +216,28 @@ def _snowflake_connect_kwargs_from_secret(destination: dict[str, Any]) -> dict[s
     else:
         kwargs["password"] = destination["password"]
     return kwargs
+
+
+def _github_oidc_token(audience: str | None) -> str:
+    """Request a GitHub Actions OIDC ID token for Snowflake workload identity federation."""
+    request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
+    request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+    if not request_url or not request_token:
+        raise ConfigError(
+            "WAREHOUSE_CREDENTIALS.auth_method is 'workload_identity' but no GitHub Actions "
+            "OIDC token is available; run inside GitHub Actions with 'permissions: id-token: write'"
+        )
+    if audience:
+        request_url += ("&" if "?" in request_url else "?") + urllib.parse.urlencode({"audience": audience})
+    request = urllib.request.Request(request_url, headers={"Authorization": f"Bearer {request_token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            token = json.load(response).get("value")
+    except (OSError, ValueError) as e:
+        raise ConfigError(f"Failed to fetch GitHub Actions OIDC token: {e}") from e
+    if not token:
+        raise ConfigError("GitHub Actions OIDC token response did not include a token")
+    return token
 
 
 def _databricks_connect_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:

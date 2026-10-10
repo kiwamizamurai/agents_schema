@@ -1,3 +1,4 @@
+import io
 import unittest
 from unittest.mock import patch
 
@@ -12,7 +13,9 @@ from agents_schema.destinations import (
     _clickhouse_connect_kwargs_from_secret,
     _create_table_if_not_exists_sql,
     _databricks_connect_kwargs_from_secret,
+    _github_oidc_token,
     _merge_sql,
+    _snowflake_connect_kwargs_from_secret,
     open_destination,
 )
 from agents_schema.root import ROOT
@@ -256,3 +259,61 @@ class DestinationSqlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnowflakeWorkloadIdentityTests(unittest.TestCase):
+    BASE = {
+        "type": "snowflake",
+        "account": "acct",
+        "user": "BOT",
+        "warehouse": "WH",
+        "database": "DB",
+        "auth_method": "workload_identity",
+    }
+
+    def test_workload_identity_builds_oidc_connect_kwargs_without_static_credentials(self):
+        with patch("agents_schema.destinations._github_oidc_token", return_value="jwt") as fetch:
+            kwargs = _snowflake_connect_kwargs_from_secret({**self.BASE, "oidc_audience": "aud"})
+
+        fetch.assert_called_once_with("aud")
+        self.assertEqual(kwargs["authenticator"], "WORKLOAD_IDENTITY")
+        self.assertEqual(kwargs["workload_identity_provider"], "OIDC")
+        self.assertEqual(kwargs["token"], "jwt")
+        self.assertNotIn("password", kwargs)
+        self.assertNotIn("private_key", kwargs)
+
+    def test_workload_identity_rejects_static_credentials(self):
+        with self.assertRaisesRegex(ConfigError, "remove password"):
+            _snowflake_connect_kwargs_from_secret({**self.BASE, "password": "pw"})
+
+    def test_unknown_auth_method_is_rejected(self):
+        with self.assertRaisesRegex(ConfigError, "auth_method must be"):
+            _snowflake_connect_kwargs_from_secret({**self.BASE, "auth_method": "magic"})
+
+    def test_github_oidc_token_requires_actions_environment(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(ConfigError, "id-token: write"):
+                _github_oidc_token(None)
+
+    def test_github_oidc_token_requests_audience(self):
+        response = io.BytesIO(b'{"value": "jwt"}')
+        env = {
+            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://actions.example/token?api-version=2",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "req",
+        }
+        with patch.dict("os.environ", env, clear=True), patch(
+            "urllib.request.urlopen", return_value=response
+        ) as urlopen:
+            token = _github_oidc_token("https://acct.snowflakecomputing.com")
+
+        self.assertEqual(token, "jwt")
+        request = urlopen.call_args.args[0]
+        self.assertIn("audience=https%3A%2F%2Facct.snowflakecomputing.com", request.full_url)
+        self.assertEqual(request.get_header("Authorization"), "Bearer req")
+
+    def test_password_auth_is_unchanged(self):
+        kwargs = _snowflake_connect_kwargs_from_secret(
+            {k: v for k, v in self.BASE.items() if k != "auth_method"} | {"password": "pw"}
+        )
+        self.assertEqual(kwargs["password"], "pw")
+        self.assertNotIn("authenticator", kwargs)
